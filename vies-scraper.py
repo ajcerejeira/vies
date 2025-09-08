@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 
+import argparse
 import json
 import re
+import sys
 from base64 import b64encode
 from typing import Iterable, TypeAlias
 from urllib.request import Request
@@ -206,3 +208,71 @@ def parse_vat_number(vat_number: str) -> str | None:
         return sanitized_vat_number
 
     return None
+
+
+def main() -> None:
+    """CLI entry point for bulk VAT number processing with VIES API."""
+    # Create a CLI argument parser and parse the args
+    parser = argparse.ArgumentParser(
+        prog="vies-scraper",
+        description="Bulk extract VAT data from VIES REST API.",
+        epilog="See https://viesapi.eu/ for more information on VIES API usage.",
+    )
+    parser.add_argument(
+        "input",
+        nargs="?",
+        metavar="FILE",
+        type=argparse.FileType("r"),
+        default=sys.stdin,
+        help="input file that contains line delimited VAT numbers. Defaults to STDIN.",
+    )
+    parser.add_argument(
+        "--output",
+        "-o",
+        nargs="?",
+        metavar="FILE",
+        type=argparse.FileType("w"),
+        default=sys.stdout,
+        help="output CSV file to write the results to. Defaults to STDOUT",
+    )
+    parser.add_argument(
+        "--batch",
+        "-b",
+        metavar="SIZE",
+        type=int,
+        default=None,
+        help="batch size for processing multiple VAT numbers",
+    )
+    parser.add_argument(
+        "--api",
+        default="https://viesapi.eu/api",
+        metavar="URL",
+        help="VIES API url. Defaults to https://viesapi.eu/api",
+    )
+    parser.add_argument(
+        "--username",
+        "-u",
+        required=True,
+        metavar="USERNAME",
+        help="username to log in to https://viesapi.eu/api",
+    )
+    parser.add_argument(
+        "--password",
+        "-p",
+        required=True,
+        metavar="PASSWORD",
+        help="password to log in to https://viesapi.eu/api",
+    )
+    args = parser.parse_args()
+
+    # Extract the list of VAT numbers from the input file, ignoring invalid ones
+    vat_numbers = (
+        sanitized_vat_number
+        for line in args.input
+        if (sanitized_vat_number := parse_vat_number(line.strip()))
+    )
+    args.output.writelines(f"{number}\n" for number in vat_numbers)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import json
+import re
 from base64 import b64encode
 from typing import Iterable, TypeAlias
 from urllib.request import Request
@@ -139,3 +140,69 @@ def request(
         data = json.dumps(body).encode("utf-8")
         headers["Content-type"] = "application/json"
     return Request(url, data, headers)
+
+
+def parse_vat_number(vat_number: str) -> str | None:
+    """Parse and validate a VAT number according to country specific formats.
+
+    Args:
+        vat_number: The VAT number to parse, containing the two-letter country prefix.
+
+    Returns:
+        The sanitized VAT number, or ``None`` if the VAT number is invalid.
+
+    Examples:
+        >>> parse_vat_number("PT501613897")
+        'PT501613897'
+
+        >>> parse_vat_number("DE 123-456.789")
+        'DE123456789'
+
+        >>> parse_vat_number("")
+
+        >>> parse_vat_number("ZZ1234")
+
+    """
+    if not vat_number:
+        return None
+
+    # fmt:off
+    vat_patterns = {
+        "AT": r"^U[0-9]{8}$",                   # Austria
+        "BE": r"^[0-1][0-9]{9}$",               # Belgium
+        "BG": r"^[0-9]{9,10}$",                 # Bulgaria
+        "CY": r"^[0-9]{8}[A-Z]$",               # Cyprus
+        "CZ": r"^[0-9]{8,10}$",                 # Czech Republic
+        "DE": r"^[0-9]{9}$",                    # Germany
+        "DK": r"^[0-9]{8}$",                    # Denmark
+        "EE": r"^[0-9]{9}$",                    # Estonia
+        "EL": r"^[0-9]{9}$",                    # Greece
+        "ES": r"^[A-Z0-9][0-9]{7}[A-Z0-9]$",    # Spain
+        "FI": r"^[0-9]{8}$",                    # Finland
+        "FR": r"^[A-Z0-9]{2}[0-9]{9}$",         # France
+        "HR": r"^[0-9]{11}$",                   # Croatia
+        "HU": r"^[0-9]{8}$",                    # Hungary
+        "IE": r"^[A-Z0-9]{7}[A-Z]{1,2}$",       # Ireland
+        "IT": r"^[0-9]{11}$",                   # Italy
+        "LT": r"^([0-9]{9}|[0-9]{12})$",        # Lithuania
+        "LU": r"^[0-9]{8}$",                    # Luxembourg
+        "LV": r"^[0-9]{11}$",                   # Latvia
+        "MT": r"^[0-9]{8}$",                    # Malta
+        "NL": r"^[0-9]{9}B[0-9]{2}$",           # Netherlands
+        "PL": r"^[0-9]{10}$",                   # Poland
+        "PT": r"^[0-9]{9}$",                    # Portugal
+        "RO": r"^[0-9]{2,10}$",                 # Romania
+        "SE": r"^[0-9]{12}$",                   # Sweden
+        "SI": r"^[0-9]{8}$",                    # Slovenia
+        "SK": r"^[0-9]{10}$",                   # Slovakia
+        "GB": r"^([0-9]{9}|[0-9]{12})$",        # United Kingdom
+    }
+    # fmt:on
+    sanitized_vat_number = re.sub(r"[\s\.\-]", "", str(vat_number).upper())
+    country_code = sanitized_vat_number[:2]
+    pattern = vat_patterns.get(country_code)
+
+    if pattern and re.match(pattern, sanitized_vat_number[2:]):
+        return sanitized_vat_number
+
+    return None

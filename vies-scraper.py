@@ -5,10 +5,11 @@ import json
 import re
 import sys
 from base64 import b64encode
-from typing import Callable, Iterable, TypeAlias
+from typing import Callable, Iterable
 from urllib.request import Request
 
-JSON: TypeAlias = None | bool | int | float | str | list["JSON"] | dict[str, "JSON"]
+
+type JSON = None | bool | int | float | str | list[JSON] | dict[str, JSON]
 """Type alias for `json` serializable values."""
 
 
@@ -82,8 +83,9 @@ def flatten(
         yield (prefix, data)
 
 
-RequestFactory: TypeAlias = Callable[..., Request]
+type RequestFactory = Callable[..., Request]
 """Type alias for factory functions that create HTTP request objects."""
+
 
 def request(
     path: str,

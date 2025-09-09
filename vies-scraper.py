@@ -4,7 +4,9 @@ import argparse
 import json
 import re
 import sys
+import time
 from base64 import b64encode
+from functools import wraps
 from typing import Callable, Iterable, Iterator
 from urllib.request import Request
 from urllib.response import addinfourl as Response
@@ -82,6 +84,73 @@ def flatten(
             yield from flatten(value, delimiter=delimiter, prefix=key)
     else:
         yield (prefix, data)
+
+
+def retry[**P, T](
+    exceptions: tuple[type[Exception], ...],
+    retries: int = 1,
+    *,
+    delay: float = 1.0,
+    backoff: float = 1.0,
+) -> Callable[[Callable[P, T]], Callable[P, T]]:
+    """Retry decorator with exponential backoff for handling transient failures.
+
+    Automatically retries function calls when specified exceptions occur, with
+    configurable delay and exponential backoff between attempts.
+
+    Args:
+        exceptions: Tuple of exception types to catch and retry on.
+        retries: Non-negative number of retry attempts after the initial call.
+        delay: Initial delay between retries in seconds.
+        backoff: Multiplier applied to delay after each failed attempt.
+
+    Returns:
+        A decorator function that wraps the target function with retry logic.
+
+    Raises:
+        The original exception if all retry attempts are exhausted or if an
+        exception type not in the exceptions tuple is encountered.
+
+    Examples:
+        Basic usage::
+
+            >>> @retry((ValueError,), retries=2)
+            ... def parse_number(text):
+            ...     return int(text)
+
+        With exponential backoff::
+
+            >>> @retry((ConnectionError,), retries=3, delay=0.5, backoff=2.0)
+            ... def connect():
+            ...     # Will retry with delays: 0.5s, 1.0s, 2.0s
+            ...     pass
+
+        Multiple exception types::
+
+            >>> @retry((ValueError, TypeError), retries=2)
+            ... def process_data(data):
+            ...     return data.strip().upper()
+
+    """
+
+    def decorator(func: Callable[P, T]) -> Callable[P, T]:
+        @wraps(func)
+        def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
+            current_delay = delay
+            for attempt in range(retries + 1):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as error:
+                    if isinstance(error, exceptions) and attempt < retries:
+                        time.sleep(current_delay)
+                        current_delay *= backoff
+                    else:
+                        raise
+            raise RuntimeError("Retry logic error: this should never be reached")
+
+        return wrapper
+
+    return decorator
 
 
 type RequestFactory = Callable[..., Request]

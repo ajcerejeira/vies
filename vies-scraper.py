@@ -158,11 +158,6 @@ def retry[**P, T](
 type RequestFactory = Callable[..., Request]
 """Type alias for factory functions that create HTTP request objects."""
 
-type ResponseParser[T] = Callable[[Response], ResponseParserResult[T]]
-"""Type alias for response parsers that yield data items or follow requests."""
-
-type ResponseParserResult[T] = Iterator[T | tuple[Request, ResponseParser[T]]]
-"""Type alias for `ResponseParser` return values."""
 
 def request(
     path: str,
@@ -226,6 +221,16 @@ def request(
     return Request(url, data, headers)
 
 
+type ResponseParser[T] = Callable[[Response], ResponseParserResult[T]]
+"""Type alias for response parsers that yield data items or follow requests."""
+
+type ResponseParserResult[T] = Iterator[T | tuple[Request, ResponseParser[T]]]
+"""Type alias for `ResponseParser` return values."""
+
+type Crawler[T] = Callable[[Iterable[tuple[Request, ResponseParser[T]]]], Iterator[T]]
+"""Type alias for crawler functions that process request-parser pairs."""
+
+
 def crawl[T](
     requests: Iterable[tuple[Request, ResponseParser[T]]],
     *,
@@ -255,7 +260,7 @@ def crawl[T](
 
             >>> import json
             >>> from urllib.request import Request
-            >>> 
+            >>>
             >>> def parse_json(response):
             ...     data = json.loads(response.read())
             ...     yield data["result"]
@@ -272,7 +277,7 @@ def crawl[T](
             ...     if "next_page" in data:
             ...         next_req = Request(data["next_page"])
             ...         yield (next_req, parse_with_pagination)
-            >>> 
+            >>>
             >>> initial = [(Request("https://api.example.com/page1"), parse_with_pagination)]
             >>> all_items = list(crawl(initial, retries=3, delay=0.5))  # doctest:+SKIP
 

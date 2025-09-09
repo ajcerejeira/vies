@@ -6,9 +6,11 @@ import re
 import sys
 import time
 from base64 import b64encode
+from collections import deque
 from functools import wraps
 from typing import Callable, Iterable, Iterator
-from urllib.request import Request
+from urllib.error import URLError
+from urllib.request import Request, urlopen
 from urllib.response import addinfourl as Response
 
 
@@ -223,6 +225,76 @@ def request(
         data = json.dumps(body).encode("utf-8")
         headers["Content-type"] = "application/json"
     return Request(url, data, headers)
+
+
+def crawl[T](
+    requests: Iterable[tuple[Request, ResponseParser[T]]],
+    *,
+    timeout: float = 30.0,
+    retries: int = 1,
+    delay: float = 1.0,
+    backoff: float = 2.0,
+) -> Iterator[T]:
+    """Breadth-first web crawler with automatic retry logic.
+
+    Executes HTTP requests using a breadth-first queue approach, where each
+    response parser can yield data items or additional requests to follow.
+    Failed requests are automatically retried with exponential backoff.
+
+    Args:
+        requests: Initial collection of (request, parser) tuples to process.
+        timeout: HTTP request timeout in seconds.
+        retries: Number of retry attempts for failed requests.
+        delay: Initial delay between retries in seconds.
+        backoff: Multiplier applied to delay after each failed attempt.
+
+    Yields:
+        Data items extracted by the response parsers.
+
+    Examples:
+        Simple crawling with a basic parser::
+
+            >>> import json
+            >>> from urllib.request import Request
+            >>> 
+            >>> def parse_json(response):
+            ...     data = json.loads(response.read())
+            ...     yield data["result"]
+            >>> 
+            >>> requests = [(Request("https://api.example.com/data"), parse_json)]
+            >>> results = list(crawl(requests))                         # doctest:+SKIP
+
+        Crawling with follow-up requests::
+
+            >>> def parse_with_pagination(response):
+            ...     data = json.loads(response.read())
+            ...     for item in data["items"]:
+            ...         yield item
+            ...     if "next_page" in data:
+            ...         next_req = Request(data["next_page"])
+            ...         yield (next_req, parse_with_pagination)
+            >>> 
+            >>> initial = [(Request("https://api.example.com/page1"), parse_with_pagination)]
+            >>> all_items = list(crawl(initial, retries=3, delay=0.5))  # doctest:+SKIP
+
+    """
+
+    @retry((URLError,), retries=retries, delay=delay, backoff=backoff)
+    def fetch(
+        request: Request,
+        parse: ResponseParser[T],
+    ) -> Iterator[T | tuple[Request, ResponseParser[T]]]:
+        with urlopen(request, timeout=timeout) as response:
+            yield from parse(response)
+
+    queue = deque(requests)
+    while queue:
+        request, parse = queue.popleft()
+        for result in fetch(request, parse):
+            if isinstance(result, tuple):
+                queue.append(result)
+            else:
+                yield result
 
 
 def parse_vat_number(vat_number: str) -> str | None:

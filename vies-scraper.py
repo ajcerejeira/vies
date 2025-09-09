@@ -5,8 +5,9 @@ import json
 import re
 import sys
 from base64 import b64encode
-from typing import Callable, Iterable
+from typing import Callable, Iterable, Iterator
 from urllib.request import Request
+from urllib.response import addinfourl as Response
 
 
 type JSON = None | bool | int | float | str | list[JSON] | dict[str, JSON]
@@ -85,6 +86,12 @@ def flatten(
 
 type RequestFactory = Callable[..., Request]
 """Type alias for factory functions that create HTTP request objects."""
+
+type ResponseParser[T] = Callable[
+    [Response],
+    Iterator[T | tuple[Request, ResponseParser[T]]],
+]
+"""Type alias for response parsers that yield data items or follow requests."""
 
 
 def request(

@@ -8,6 +8,7 @@ import time
 from base64 import b64encode
 from collections import deque
 from functools import wraps
+from itertools import batched, repeat
 from typing import Callable, Iterable, Iterator
 from urllib.error import URLError
 from urllib.request import Request, urlopen
@@ -264,7 +265,7 @@ def crawl[T](
             >>> def parse_json(response):
             ...     data = json.loads(response.read())
             ...     yield data["result"]
-            >>> 
+            >>>
             >>> requests = [(Request("https://api.example.com/data"), parse_json)]
             >>> results = list(crawl(requests))                         # doctest:+SKIP
 
@@ -296,6 +297,86 @@ def crawl[T](
                 queue.append(result)
             else:
                 yield result
+
+
+def scrape(
+    vat_numbers: Iterable[str],
+    *,
+    crawl: Crawler[JSON],
+    factory: RequestFactory,
+    batch: int | None = None,
+) -> Iterable[JSON]:
+    """Scrape VAT information from VIES API using single requests or batch processing.
+
+    Processes VAT numbers through the VIES API using either individual requests
+    for immediate results or batch requests for bulk processing. Batch mode uses
+    an asynchronous submit-then-poll pattern for handling multiple VAT numbers.
+
+    Args:
+        vat_numbers: Iterable of VAT numbers to process.
+        factory: Request factory function to create HTTP requests.
+        batch: Optional batch size for bulk processing.
+
+    Yields:
+        JSON data containing VAT validation results for each processed number.
+
+    Examples:
+        Individual processing (immediate results)::
+
+            >>> from functools import partial
+            >>> factory = partial(request,
+            ...     base_url="https://viesapi.eu/api-test",
+            ...     username="test_id",
+            ...     password="test_key")
+            >>> vat_numbers = ["ES38076731R", "BG202211464"]
+            >>> results = scrape(vat_numbers, factory=factory, crawl=crawl)
+            >>> list(results)      # doctest: +ELLIPSIS
+            [{..., 'countryCode': 'ES', 'vatNumber': '38076731R', ...]
+
+        Batch processing (submit and poll)::
+
+            >>> from functools import partial
+            >>> factory = partial(request,
+            ...     base_url="https://viesapi.eu/api-test",
+            ...     username="test_id",
+            ...     password="test_key")
+            >>> crawler = partial(crawl, delay=5*60, retry=2)
+            >>> vat_numbers = ["ES38076731R", "BG202211464", "IE8251135U"]
+            >>> results = scrape(vat_numbers, factory=factory, crawl=crawler, batch=3)
+            >>> list(results)
+
+    """
+
+    def parse_get_vies_data_parsed(response: Response) -> ResponseParserResult[JSON]:
+        """Parse single VAT number response from GET /get/vies/parsed/euvat/{number}."""
+        body = json.loads(response.read())["vies"]
+        yield body
+
+    def parse_post_vies_data_batch(response: Response) -> ResponseParserResult[JSON]:
+        """Parse batch response from POST /batch/vies and yield follow up request."""
+        body = json.loads(response.read())
+        token = body["batch"]["token"]
+        yield (factory(f"/batch/vies/{token}"), parse_get_vies_data_batch)
+
+    def parse_get_vies_data_batch(response: Response) -> ResponseParserResult[JSON]:
+        """Parse batch results response from GET /batch/vies/{token}."""
+        body = json.loads(response.read())
+        print(body)
+        yield from body["batch"]["numbers"]
+
+    if batch:
+        requests = (
+            factory("/batch/vies", {"batch": {"numbers": list(chunk)}})
+            for chunk in batched(vat_numbers, batch)
+        )
+        parse = parse_post_vies_data_batch
+    else:
+        requests = (
+            factory(f"/get/vies/parsed/euvat/{vat_number}")
+            for vat_number in vat_numbers
+        )
+        parse = parse_get_vies_data_parsed
+    return crawl(zip(requests, repeat(parse)))
 
 
 def parse_vat_number(vat_number: str) -> str | None:

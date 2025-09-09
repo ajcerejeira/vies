@@ -158,12 +158,11 @@ def retry[**P, T](
 type RequestFactory = Callable[..., Request]
 """Type alias for factory functions that create HTTP request objects."""
 
-type ResponseParser[T] = Callable[
-    [Response],
-    Iterator[T | tuple[Request, ResponseParser[T]]],
-]
+type ResponseParser[T] = Callable[[Response], ResponseParserResult[T]]
 """Type alias for response parsers that yield data items or follow requests."""
 
+type ResponseParserResult[T] = Iterator[T | tuple[Request, ResponseParser[T]]]
+"""Type alias for `ResponseParser` return values."""
 
 def request(
     path: str,
@@ -280,10 +279,7 @@ def crawl[T](
     """
 
     @retry((URLError,), retries=retries, delay=delay, backoff=backoff)
-    def fetch(
-        request: Request,
-        parse: ResponseParser[T],
-    ) -> Iterator[T | tuple[Request, ResponseParser[T]]]:
+    def fetch(request: Request, parse: ResponseParser[T]) -> ResponseParserResult[T]:
         with urlopen(request, timeout=timeout) as response:
             yield from parse(response)
 

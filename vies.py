@@ -11,7 +11,7 @@ from collections import deque
 from functools import partial, wraps
 from itertools import batched, repeat
 from io import StringIO
-from typing import Callable, Iterable, Iterator
+from typing import Callable, Generator, Iterable, Iterator
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 from urllib.response import addinfourl as Response
@@ -26,7 +26,7 @@ def flatten(
     *,
     delimiter: str = ".",
     prefix: str = "",
-) -> Iterator[tuple[str, None | bool | int | float | str]]:
+) -> Generator[tuple[str, None | bool | int | float | str]]:
     """Flatten nested JSON object into key-value pairs with delimiter-separated keys.
 
     Args:
@@ -304,7 +304,7 @@ def crawl[T](
     retries: int = 1,
     delay: float = 1.0,
     backoff: float = 2.0,
-) -> Iterator[T]:
+) -> Generator[T]:
     """Breadth-first web crawler with automatic retry logic.
 
     Executes HTTP requests using a breadth-first queue approach, where each

@@ -2,6 +2,7 @@
 
 import argparse
 import csv
+import io
 import json
 import re
 import sys
@@ -10,7 +11,6 @@ from base64 import b64encode
 from collections import deque
 from functools import partial
 from itertools import batched, repeat
-from io import StringIO
 from typing import Callable, Generator, Iterable, Iterator
 from urllib.error import URLError
 from urllib.request import Request, urlopen
@@ -91,7 +91,7 @@ def flatten(
         yield (prefix, data)
 
 
-def serialize(file: StringIO, data: Iterable[JSON]) -> None:
+def serialize(file: io.StringIO, data: Iterable[JSON]) -> None:
     """Serialize JSON data to CSV format with flattened nested structures.
 
     Converts an iterable of JSON objects into CSV format by flattening nested
@@ -143,13 +143,24 @@ def serialize(file: StringIO, data: Iterable[JSON]) -> None:
             Bob,
 
     """
+    # Check if file has existing data and position for append or fresh write
+    file.seek(io.SEEK_SET)
+    has_existing_data = next(csv.DictReader(file), False)
+    if has_existing_data:
+        file.seek(0, io.SEEK_END)
+    else:
+        file.seek(io.SEEK_SET)
+
+    # Convert data to flattened rows and get first item for field names
     rows = (dict(flatten(item)) for item in data)
     first = next(rows, None)
     if not first:
         return
 
+    # Write CSV with conditional header based on existing data
     writer = csv.DictWriter(file, first.keys(), extrasaction="ignore", restval=None)
-    writer.writeheader()
+    if not has_existing_data:
+        writer.writeheader()
     writer.writerow(first)
     writer.writerows(rows)
 
@@ -478,7 +489,7 @@ def main() -> None:
         "-o",
         nargs="?",
         metavar="FILE",
-        type=argparse.FileType("w"),
+        type=argparse.FileType("a+"),
         default=sys.stdout,
         help="output CSV file to write the results to. Defaults to STDOUT",
     )
@@ -512,11 +523,24 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    # Extract the list of VAT numbers from the input file, ignoring invalid ones
+    # Resume functionality: read existing output to find already processed VAT numbers
+    processed_vat_numbers = set()
+    if args.output != sys.stdout:
+        args.output.seek(io.SEEK_SET)
+        processed_vat_numbers = {
+            f"{row['countryCode']}{row['vatNumber']}"
+            for row in csv.DictReader(args.output)
+        }
+        args.output.seek(0, io.SEEK_END)
+
+    # Extract all VAT numbers from the input file, ignoring invalid or processed ones
     vat_numbers = (
         sanitized_vat_number
         for line in args.input
-        if (sanitized_vat_number := parse_vat_number(line.strip()))
+        if (
+            (sanitized_vat_number := parse_vat_number(line.strip()))
+            and sanitized_vat_number not in processed_vat_numbers
+        )
     )
 
     # Scrape all the VAT numbers

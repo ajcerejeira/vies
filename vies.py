@@ -8,7 +8,7 @@ import sys
 import time
 from base64 import b64encode
 from collections import deque
-from functools import partial, wraps
+from functools import partial
 from itertools import batched, repeat
 from io import StringIO
 from typing import Callable, Generator, Iterable, Iterator
@@ -154,73 +154,6 @@ def serialize(file: StringIO, data: Iterable[JSON]) -> None:
     writer.writerows(rows)
 
 
-def retry[**P, T](
-    exceptions: tuple[type[Exception], ...],
-    retries: int = 1,
-    *,
-    delay: float = 1.0,
-    backoff: float = 1.0,
-) -> Callable[[Callable[P, T]], Callable[P, T]]:
-    """Retry decorator with exponential backoff for handling transient failures.
-
-    Automatically retries function calls when specified exceptions occur, with
-    configurable delay and exponential backoff between attempts.
-
-    Args:
-        exceptions: Tuple of exception types to catch and retry on.
-        retries: Non-negative number of retry attempts after the initial call.
-        delay: Initial delay between retries in seconds.
-        backoff: Multiplier applied to delay after each failed attempt.
-
-    Returns:
-        A decorator function that wraps the target function with retry logic.
-
-    Raises:
-        The original exception if all retry attempts are exhausted or if an
-        exception type not in the exceptions tuple is encountered.
-
-    Examples:
-        Basic usage::
-
-            >>> @retry((ValueError,), retries=2)
-            ... def parse_number(text):
-            ...     return int(text)
-
-        With exponential backoff::
-
-            >>> @retry((ConnectionError,), retries=3, delay=0.5, backoff=2.0)
-            ... def connect():
-            ...     # Will retry with delays: 0.5s, 1.0s, 2.0s
-            ...     pass
-
-        Multiple exception types::
-
-            >>> @retry((ValueError, TypeError), retries=2)
-            ... def process_data(data):
-            ...     return data.strip().upper()
-
-    """
-
-    def decorator(func: Callable[P, T]) -> Callable[P, T]:
-        @wraps(func)
-        def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
-            current_delay = delay
-            for attempt in range(retries + 1):
-                try:
-                    return func(*args, **kwargs)
-                except Exception as error:
-                    if isinstance(error, exceptions) and attempt < retries:
-                        time.sleep(current_delay)
-                        current_delay *= backoff
-                    else:
-                        raise
-            raise RuntimeError("Retry logic error: this should never be reached")
-
-        return wrapper
-
-    return decorator
-
-
 type RequestFactory = Callable[..., Request]
 """Type alias for factory functions that create HTTP request objects."""
 
@@ -309,7 +242,8 @@ def crawl[T](
 
     Executes HTTP requests using a breadth-first queue approach, where each
     response parser can yield data items or additional requests to follow.
-    Failed requests are automatically retried with exponential backoff.
+    `urllib.error.URLError` exceptions are automatically retried with
+    exponential backoff.
 
     Args:
         requests: Initial collection of (request, parser) tuples to process.
@@ -359,10 +293,20 @@ def crawl[T](
 
     """
 
-    @retry((URLError,), retries=retries, delay=delay, backoff=backoff)
-    def fetch(request: Request, parse: ResponseParser[T]) -> ResponseParserResult[T]:
-        with urlopen(request, timeout=timeout) as response:
-            yield from parse(response)
+    def fetch(
+        request: Request,
+        parse: ResponseParser[T],
+        attempt: int = 0,
+    ) -> ResponseParserResult[T]:
+        try:
+            with urlopen(request, timeout=timeout) as response:
+                yield from parse(response)
+        except URLError:
+            if attempt < retries:
+                time.sleep(delay * (backoff**attempt))
+                yield from fetch(request, parse, attempt + 1)
+            else:
+                raise
 
     queue = deque(requests)
     while queue:
@@ -578,7 +522,7 @@ def main() -> None:
     # Scrape all the VAT numbers
     results = scrape(
         vat_numbers,
-        crawl=crawl,
+        crawl=partial(crawl, retries=3, delay=30),
         factory=partial(
             request,
             base_url=args.api,

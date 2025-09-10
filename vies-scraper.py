@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+import csv
 import json
 import re
 import sys
@@ -9,6 +10,7 @@ from base64 import b64encode
 from collections import deque
 from functools import wraps
 from itertools import batched, repeat
+from io import StringIO
 from typing import Callable, Iterable, Iterator
 from urllib.error import URLError
 from urllib.request import Request, urlopen
@@ -87,6 +89,69 @@ def flatten(
             yield from flatten(value, delimiter=delimiter, prefix=key)
     else:
         yield (prefix, data)
+
+
+def serialize(file: StringIO, data: Iterable[JSON]) -> None:
+    """Serialize JSON data to CSV format with flattened nested structures.
+
+    Converts an iterable of JSON objects into CSV format by flattening nested
+    structures using dot notation for keys.
+    The CSV fieldnames are determined from the first data item.
+    Missing keys in subsequent items are filled with None values, and extra keys
+    are ignored.
+
+    Args:
+        file: Text stream to write CSV output to.
+        data: Iterable of JSON-serializable objects to convert to CSV.
+
+    Examples:
+        Basic usage with simple objects::
+
+            >>> from io import StringIO
+            >>> output = StringIO()
+            >>> data = [{"name": "Alice", "age": 30}, {"name": "Bob", "age": 25}]
+            >>> serialize(output, data)
+            >>> print(output.getvalue())        # doctest: +NORMALIZE_WHITESPACE
+            name,age
+            Alice,30
+            Bob,25
+
+        Nested objects are flattened with dot notation::
+
+            >>> output = StringIO()
+            >>> data = [
+            ...     {"user": {"name": "Alice", "profile": {"city": "NYC"}}},
+            ...     {"user": {"name": "Bob", "profile": {"city": "LA"}}}
+            ... ]
+            >>> serialize(output, data)
+            >>> print(output.getvalue())        # doctest: +NORMALIZE_WHITESPACE
+            user.name,user.profile.city
+            Alice,NYC
+            Bob,LA
+
+        Missing keys in subsequent items are handled gracefully::
+
+            >>> output = StringIO()
+            >>> data = [
+            ...     {"name": "Alice", "email": "alice@example.com"},
+            ...     {"name": "Bob"}  # missing email
+            ... ]
+            >>> serialize(output, data)
+            >>> print(output.getvalue())        # doctest: +NORMALIZE_WHITESPACE
+            name,email
+            Alice,alice@example.com
+            Bob,
+
+    """
+    rows = (dict(flatten(item)) for item in data)
+    first = next(rows, None)
+    if not first:
+        return
+
+    writer = csv.DictWriter(file, first.keys(), extrasaction="ignore", restval=None)
+    writer.writeheader()
+    writer.writerow(first)
+    writer.writerows(rows)
 
 
 def retry[**P, T](
@@ -506,7 +571,22 @@ def main() -> None:
         for line in args.input
         if (sanitized_vat_number := parse_vat_number(line.strip()))
     )
-    args.output.writelines(f"{number}\n" for number in vat_numbers)
+
+    # Scrape all the VAT numbers
+    results = scrape(
+        vat_numbers,
+        crawl=crawl,
+        factory=partial(
+            request,
+            base_url=args.api,
+            username=args.username,
+            password=args.password,
+        ),
+        batch=args.batch,
+    )
+
+    # Write the fetched results to the CSV file
+    serialize(args.output, results)
 
 
 if __name__ == "__main__":

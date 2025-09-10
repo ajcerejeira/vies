@@ -27,8 +27,8 @@ jobs:
     - name: Install and run mypy
       run: |
         pip install mypy
-        mypy --strict vies-scraper.py
+        mypy --strict vies.py
 
     - name: Run doctests
       run: |
-        python -m doctest vies-scraper.py
+        python -m doctest vies.py

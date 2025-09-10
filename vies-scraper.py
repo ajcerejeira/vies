@@ -8,7 +8,7 @@ import sys
 import time
 from base64 import b64encode
 from collections import deque
-from functools import wraps
+from functools import partial, wraps
 from itertools import batched, repeat
 from io import StringIO
 from typing import Callable, Iterable, Iterator
@@ -26,16 +26,16 @@ def flatten(
     *,
     delimiter: str = ".",
     prefix: str = "",
-) -> Iterable[tuple[str, None | bool | int | float | str]]:
+) -> Iterator[tuple[str, None | bool | int | float | str]]:
     """Flatten nested JSON object into key-value pairs with delimiter-separated keys.
 
     Args:
-        data: JSON-serializable data structure to flatten (`dict`, `list`, or scalar)
-        delimiter: String used to separate nested keys
-        prefix: Internal parameter for recursion, specifies key prefix
+        data: JSON-serializable data structure to flatten (`dict`, `list`, or scalar).
+        delimiter: String used to separate nested keys.
+        prefix: Internal parameter for recursion, specifies key prefix.
 
     Yields:
-        Key-value pairs where keys are delimiter-separated paths to leaf values
+        Key-value pairs where keys are delimiter-separated paths to leaf values,
 
     Examples:
         Basic dictionary flattening::
@@ -62,7 +62,7 @@ def flatten(
         ...     },
         ...     "active": True
         ... }
-        >>> dict(flatten(data))             # doctest: +ELLIPSIS
+        >>> dict(flatten(data))                 # doctest: +ELLIPSIS
         {'company.name': 'Acme Corp', 'company.employees.0.name': 'Alice', ...}
 
         Custom delimiter::
@@ -257,14 +257,14 @@ def request(
         'https://viesapi.eu/api-test/check/account/status'
         >>> req.headers["Accept"]
         'application/json'
-        >>> req.headers["Authorization"]    # doctest: +ELLIPSIS
+        >>> req.headers["Authorization"]        # doctest: +ELLIPSIS
         'Basic ...'
 
         Create a POST request with JSON data::
 
         >>> req = request(
         ...     "/batch/vies",
-        ...     body={"batch": {"numbers": ["FI23064613", "SI51510847", "IE8251135U"]}},
+        ...     body={"batch": {"numbers": ["FI23064613", "SI51510847"]}},
         ...     base_url="https://viesapi.eu/api-test",
         ...     username="test_id",
         ...     password="test_key")
@@ -327,25 +327,35 @@ def crawl[T](
             >>> import json
             >>> from urllib.request import Request
             >>>
-            >>> def parse_json(response):
-            ...     data = json.loads(response.read())
-            ...     yield data["result"]
-            >>>
-            >>> requests = [(Request("https://api.example.com/data"), parse_json)]
-            >>> results = list(crawl(requests))                         # doctest:+SKIP
+            >>> # Simple parse function that reads a JSON response and extracts a key
+            >>> parse = lambda response: (yield json.loads(response.read()).get("name"))
+            >>> requests = [
+            ...     (Request("https://jsonplaceholder.typicode.com/users/1"), parse),
+            ...     (Request("https://jsonplaceholder.typicode.com/users/2"), parse),
+            ...     (Request("https://jsonplaceholder.typicode.com/users/3"), parse)
+            ... ]
+            >>> results = crawl(requests)
+            >>> list(results)
+            ['Leanne Graham', 'Ervin Howell', 'Clementine Bauch']
 
         Crawling with follow-up requests::
 
-            >>> def parse_with_pagination(response):
-            ...     data = json.loads(response.read())
-            ...     for item in data["items"]:
-            ...         yield item
-            ...     if "next_page" in data:
-            ...         next_req = Request(data["next_page"])
-            ...         yield (next_req, parse_with_pagination)
+            >>> import json
+            >>> from urllib.request import Request
             >>>
-            >>> initial = [(Request("https://api.example.com/page1"), parse_with_pagination)]
-            >>> all_items = list(crawl(initial, retries=3, delay=0.5))  # doctest:+SKIP
+            >>> def parse_user_detail(response):
+            ...     yield json.loads(response.read()).get("name")
+            >>>
+            >>> def parse_user_list(response):
+            ...     data = json.loads(response.read())
+            ...     for key in data:
+            ...         url = f"https://jsonplaceholder.typicode.com/users/{key['id']}"
+            ...         yield (Request(url), parse_user_detail)
+            >>>
+            >>> initial = Request("https://jsonplaceholder.typicode.com//users")
+            >>> results = crawl([(initial, parse_user_list)])
+            >>> list(results)                   # doctest: +ELLIPSIS
+            ['Leanne Graham', 'Ervin Howell', 'Clementine Bauch', ...]
 
     """
 
@@ -379,6 +389,7 @@ def scrape(
 
     Args:
         vat_numbers: Iterable of VAT numbers to process.
+        crawl: Crawler function to process request-parser pairs.
         factory: Request factory function to create HTTP requests.
         batch: Optional batch size for bulk processing.
 
@@ -386,29 +397,20 @@ def scrape(
         JSON data containing VAT validation results for each processed number.
 
     Examples:
-        Individual processing (immediate results)::
+        Single VAT number processing::
 
             >>> from functools import partial
-            >>> factory = partial(request,
+            >>>
+            >>> factory = partial(
+            ...     request,
             ...     base_url="https://viesapi.eu/api-test",
             ...     username="test_id",
-            ...     password="test_key")
-            >>> vat_numbers = ["ES38076731R", "BG202211464"]
-            >>> results = scrape(vat_numbers, factory=factory, crawl=crawl)
-            >>> list(results)      # doctest: +ELLIPSIS
-            [{..., 'countryCode': 'ES', 'vatNumber': '38076731R', ...]
-
-        Batch processing (submit and poll)::
-
-            >>> from functools import partial
-            >>> factory = partial(request,
-            ...     base_url="https://viesapi.eu/api-test",
-            ...     username="test_id",
-            ...     password="test_key")
-            >>> crawler = partial(crawl, delay=5*60, retry=2)
-            >>> vat_numbers = ["ES38076731R", "BG202211464", "IE8251135U"]
-            >>> results = scrape(vat_numbers, factory=factory, crawl=crawler, batch=3)
-            >>> list(results)
+            ...     password="test_key"
+            ... )
+            >>> vat_numbers = ["PT501613897"]
+            >>> results = scrape(vat_numbers, crawl=crawl, factory=factory)
+            >>> list(results)                   # doctest: +ELLIPSIS
+            [{..., 'countryCode': 'PT', 'vatNumber': '501613897', ...}]
 
     """
 
@@ -426,7 +428,8 @@ def scrape(
     def parse_get_vies_data_batch(response: Response) -> ResponseParserResult[JSON]:
         """Parse batch results response from GET /batch/vies/{token}."""
         body = json.loads(response.read())
-        print(body)
+        if "error" in body:
+            raise URLError(body["error"]["description"])
         yield from body["batch"]["numbers"]
 
     if batch:

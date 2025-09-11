@@ -12,9 +12,10 @@ from base64 import b64encode
 from collections import deque
 from collections.abc import Callable, Generator, Iterable, Iterator
 from functools import partial
+from http import HTTPStatus
 from itertools import batched, repeat
 from operator import methodcaller
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 from urllib.response import addinfourl as Response
 
@@ -268,8 +269,9 @@ def crawl[T](
 
     Executes HTTP requests using a breadth-first queue approach, where each
     response parser can yield data items or additional requests to follow.
-    `urllib.error.URLError` exceptions are automatically retried with
-    exponential backoff.
+    Network errors (`urllib.error.URLError`, `TimeoutError`) and retryable 
+    `urrlib.error.HTTPError` (408, 429, 500, 502, 503, 504) are automatically
+    retried with exponential backoff.
     Failed requests are logged and skipped to allow processing to continue.
 
     Args:
@@ -325,28 +327,36 @@ def crawl[T](
         parse: ResponseParser[T],
         attempt: int = 0,
     ) -> ResponseParserResult[T]:
-        info = f"{request.get_method()} {request.get_full_url()} {request.data or ''}"
         try:
-            logger.debug("Processing request: %s", info)
+            logger.debug("Processing request: %s", request.get_full_url())
             with urlopen(request, timeout=timeout) as response:
                 yield from parse(response)
-        except URLError as error:
-            if attempt < retries:
+        except (HTTPError, URLError, TimeoutError) as error:
+            retry = attempt < retries and (
+                not isinstance(error, HTTPError)
+                or error.code
+                in {
+                    HTTPStatus.REQUEST_TIMEOUT,
+                    HTTPStatus.TOO_MANY_REQUESTS,
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    HTTPStatus.BAD_GATEWAY,
+                    HTTPStatus.SERVICE_UNAVAILABLE,
+                    HTTPStatus.GATEWAY_TIMEOUT,
+                }
+            )
+            if retry:
                 logger.warning(
-                    "Request failed. Retrying (%d/%d): %s",
+                    "Retrying request: %s (%s/%s)",
+                    request.get_full_url(),
                     attempt + 1,
                     retries,
-                    info,
                 )
                 time.sleep(delay * (backoff**attempt))
                 yield from fetch(request, parse, attempt + 1)
             else:
-                logger.error(
-                    "Request failed after %d retries: %s. %s",
-                    retries,
-                    info,
-                    getattr(error, "reason", str(error)),
-                )
+                logger.error("Failed request: %s", request.get_full_url())
+        except ValueError as error:
+            logger.error("API error: %s - %s", request.get_full_url(), error)
 
     queue = deque(requests)
     while queue:
@@ -401,14 +411,14 @@ def scrape(
         """Parse single VAT number response from GET /get/vies/parsed/euvat/{number}."""
         body = json.loads(response.read())["vies"]
         if "error" in body:
-            raise URLError(body["error"]["description"], response.geturl())
+            raise ValueError(body["error"])
         yield body
 
     def parse_post_vies_data_batch(response: Response) -> ResponseParserResult[JSON]:
         """Parse batch response from POST /batch/vies and yield follow up request."""
         body = json.loads(response.read())
         if "error" in body:
-            raise URLError(body["error"]["description"], response.geturl())
+            raise ValueError(body["error"])
         token = body["batch"]["token"]
         yield (factory(f"/batch/vies/{token}"), parse_get_vies_data_batch)
 

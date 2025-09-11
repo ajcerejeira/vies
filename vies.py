@@ -372,11 +372,15 @@ def scrape(
     def parse_get_vies_data_parsed(response: Response) -> ResponseParserResult[JSON]:
         """Parse single VAT number response from GET /get/vies/parsed/euvat/{number}."""
         body = json.loads(response.read())["vies"]
+        if "error" in body:
+            raise URLError(body["error"]["description"], response.geturl())
         yield body
 
     def parse_post_vies_data_batch(response: Response) -> ResponseParserResult[JSON]:
         """Parse batch response from POST /batch/vies and yield follow up request."""
         body = json.loads(response.read())
+        if "error" in body:
+            raise URLError(body["error"]["description"], response.geturl())
         token = body["batch"]["token"]
         yield (factory(f"/batch/vies/{token}"), parse_get_vies_data_batch)
 
@@ -384,7 +388,7 @@ def scrape(
         """Parse batch results response from GET /batch/vies/{token}."""
         body = json.loads(response.read())
         if "error" in body:
-            raise URLError(body["error"]["description"])
+            raise URLError(body["error"]["description"], response.geturl())
         yield from body["batch"]["numbers"]
 
     if batch:

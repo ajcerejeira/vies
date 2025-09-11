@@ -266,6 +266,7 @@ def crawl[T](
     response parser can yield data items or additional requests to follow.
     `urllib.error.URLError` exceptions are automatically retried with
     exponential backoff.
+    Failed requests are logged and skipped to allow processing to continue.
 
     Args:
         requests: Initial collection of (request, parser) tuples to process.

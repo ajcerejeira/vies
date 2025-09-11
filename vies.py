@@ -556,6 +556,20 @@ def main() -> None:
         metavar="PASSWORD",
         help="password to log in to https://viesapi.eu/api",
     )
+    parser.add_argument(
+        "--retries",
+        metavar="N",
+        type=int,
+        default=3,
+        help="number of retry attempts for failed requests",
+    )
+    parser.add_argument(
+        "--delay",
+        metavar="SECONDS",
+        type=float,
+        default=30,
+        help="initial delay between retries in seconds with exponential backoff",
+    )
     args = parser.parse_args()
 
     # Resume functionality: read existing output to find already processed VAT numbers
@@ -591,7 +605,7 @@ def main() -> None:
     logger.info("Starting VAT data scraping from VIES API (%s)", args.api)
     results = scrape(
         vat_numbers,
-        crawl=partial(crawl, retries=1, delay=30),
+        crawl=partial(crawl, retries=args.retries, delay=args.delay),
         factory=partial(
             request,
             base_url=args.api,

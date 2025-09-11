@@ -10,9 +10,9 @@ import sys
 import time
 from base64 import b64encode
 from collections import deque
+from collections.abc import Callable, Generator, Iterable, Iterator
 from functools import partial
 from itertools import batched, repeat
-from typing import Callable, Generator, Iterable, Iterator
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 from urllib.response import addinfourl as Response
@@ -92,12 +92,18 @@ def flatten(
     """
     if isinstance(data, dict):
         for key, value in data.items():
-            key = f"{prefix}{delimiter}{key}" if prefix else key
-            yield from flatten(value, delimiter=delimiter, prefix=key)
+            yield from flatten(
+                value,
+                delimiter=delimiter,
+                prefix=f"{prefix}{delimiter}{key}" if prefix else key,
+            )
     elif isinstance(data, list):
         for index, value in enumerate(data):
-            key = f"{prefix}{delimiter}{index}" if prefix else str(index)
-            yield from flatten(value, delimiter=delimiter, prefix=key)
+            yield from flatten(
+                value,
+                delimiter=delimiter,
+                prefix=f"{prefix}{delimiter}{index}" if prefix else str(index),
+            )
     else:
         yield (prefix, data)
 
@@ -341,7 +347,7 @@ def crawl[T](
                     "Request failed after %d retries: %s. %s",
                     retries,
                     info,
-                    getattr(error, "reason"),
+                    getattr(error, "reason", str(error)),
                 )
 
     queue = deque(requests)

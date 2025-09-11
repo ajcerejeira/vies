@@ -22,7 +22,7 @@ chmod +x vies.py
 ## Usage
 
 ```bash
-./vies.py input.txt --username YOUR_USERNAME --password YOUR_PASSWORD [options]
+./vies.py input.txt --auth API_ID:API_KEY [options]
 
 Options:
   -o, --output FILE     Output CSV file (default: stdout)
@@ -40,8 +40,7 @@ the list of available VAT numbers in the test instance.
 ```bash
 ./vies.py examples/test-vat-numbers.txt --output=out.csv    \ 
     --api=https://viesapi.eu/api-test                       \ 
-    --username=test_id                                      \ 
-    --password=test_key                                     \ 
+    --auth=test_id:test_key                                  
     --batch=30
 ```
 

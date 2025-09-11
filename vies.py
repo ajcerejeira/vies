@@ -13,6 +13,7 @@ from collections import deque
 from collections.abc import Callable, Generator, Iterable, Iterator
 from functools import partial
 from itertools import batched, repeat
+from operator import methodcaller
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 from urllib.response import addinfourl as Response
@@ -191,8 +192,7 @@ def request(
     body: JSON = None,
     *,
     base_url: str = "https://viesapi.eu/api",
-    username: str,
-    password: str,
+    auth: tuple[str, str],
 ) -> Request:
     """Construct an authenticated HTTP `urllib.request.Request` object for VIES API.
 
@@ -200,8 +200,7 @@ def request(
         path: The API endpoint path to append to the base URL.
         body: `json` serializable data to include in the request body.
         base_url: The base URL of the VIES API service.
-        username: Username for HTTP Basic Authentication.
-        password: Password for HTTP Basic Authentication.
+        auth: Tuple containing (identifier, key) for HTTP Basic Authentication.
 
     Returns:
         A configured request object ready for use with `urllib.request.urlopen`.
@@ -212,8 +211,8 @@ def request(
         >>> req = request(
         ...     "/check/account/status",
         ...     base_url="https://viesapi.eu/api-test",
-        ...     username="test_id",
-        ...     password="test_key")
+        ...     auth=("test_id", "test_key")
+        ... )
         >>> req.get_full_url()
         'https://viesapi.eu/api-test/check/account/status'
         >>> req.headers["Accept"]
@@ -227,19 +226,18 @@ def request(
         ...     "/batch/vies",
         ...     body={"batch": {"numbers": ["FI23064613", "SI51510847"]}},
         ...     base_url="https://viesapi.eu/api-test",
-        ...     username="test_id",
-        ...     password="test_key")
+        ...     auth=("test_id", "test_key")
+        ... )
         >>> req.headers["Content-type"]
         'application/json'
-        >>> req.data is not None
-        True
+        >>> req.data
+        b'{"batch": {"numbers": ["FI23064613", "SI51510847"]}}'
 
     """
     url = f"{base_url.rstrip('/')}/{path.lstrip('/')}"
     data = None
-    auth = b64encode(f"{username}:{password}".encode()).decode()
     headers = {
-        "Authorization": f"Basic {auth}",
+        "Authorization": f"Basic {b64encode(':'.join(auth).encode()).decode()}",
         "Accept": "application/json",
     }
     if body is not None:
@@ -390,8 +388,7 @@ def scrape(
             >>> factory = partial(
             ...     request,
             ...     base_url="https://viesapi.eu/api-test",
-            ...     username="test_id",
-            ...     password="test_key"
+            ...     auth=("test_id", "test_key")
             ... )
             >>> vat_numbers = ["PT501613897"]
             >>> results = scrape(vat_numbers, crawl=crawl, factory=factory)
@@ -543,18 +540,12 @@ def main() -> None:
         help="VIES API url (defaults to https://viesapi.eu/api)",
     )
     parser.add_argument(
-        "--username",
-        "-u",
+        "--auth",
+        "-a",
         required=True,
-        metavar="USERNAME",
-        help="username to log in to the VIES API",
-    )
-    parser.add_argument(
-        "--password",
-        "-p",
-        required=True,
-        metavar="PASSWORD",
-        help="password to log in to the VIES API",
+        metavar="ID:KEY",
+        type=methodcaller("split", ":", 1),
+        help="crendentials for VIES API in identifier:key format",
     )
     parser.add_argument(
         "--retries",
@@ -606,12 +597,7 @@ def main() -> None:
     results = scrape(
         vat_numbers,
         crawl=partial(crawl, retries=args.retries, delay=args.delay),
-        factory=partial(
-            request,
-            base_url=args.api,
-            username=args.username,
-            password=args.password,
-        ),
+        factory=partial(request, base_url=args.api, auth=args.auth),
         batch=args.batch,
     )
 

@@ -517,7 +517,7 @@ def main() -> None:
         metavar="FILE",
         type=argparse.FileType("r"),
         default=sys.stdin,
-        help="input file that contains line delimited VAT numbers. Defaults to STDIN.",
+        help="input file that contains line delimited VAT numbers (defaults to STDIN)",
     )
     parser.add_argument(
         "--output",
@@ -526,7 +526,7 @@ def main() -> None:
         metavar="FILE",
         type=argparse.FileType("a+"),
         default=sys.stdout,
-        help="output CSV file to write the results to. Defaults to STDOUT",
+        help="output CSV file to write the results to (defaults to STDOUT)",
     )
     parser.add_argument(
         "--batch",
@@ -540,35 +540,35 @@ def main() -> None:
         "--api",
         default="https://viesapi.eu/api",
         metavar="URL",
-        help="VIES API url. Defaults to https://viesapi.eu/api",
+        help="VIES API url (defaults to https://viesapi.eu/api)",
     )
     parser.add_argument(
         "--username",
         "-u",
         required=True,
         metavar="USERNAME",
-        help="username to log in to https://viesapi.eu/api",
+        help="username to log in to the VIES API",
     )
     parser.add_argument(
         "--password",
         "-p",
         required=True,
         metavar="PASSWORD",
-        help="password to log in to https://viesapi.eu/api",
+        help="password to log in to the VIES API",
     )
     parser.add_argument(
         "--retries",
         metavar="N",
         type=int,
         default=3,
-        help="number of retry attempts for failed requests",
+        help="number of retry attempts for failed requests (defaults to 3)",
     )
     parser.add_argument(
         "--delay",
         metavar="SECONDS",
         type=float,
         default=30,
-        help="initial delay between retries in seconds with exponential backoff",
+        help="initial delay between retries with exponential backoff (defaults to 30)",
     )
     args = parser.parse_args()
 

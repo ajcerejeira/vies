@@ -260,9 +260,9 @@ type Crawler[T] = Callable[[Iterable[tuple[Request, ResponseParser[T]]]], Iterat
 def crawl[T](
     requests: Iterable[tuple[Request, ResponseParser[T]]],
     *,
-    timeout: float = 30.0,
-    retries: int = 1,
-    delay: float = 1.0,
+    timeout: float = 60.0,
+    retries: int = 3,
+    delay: float = 30.0,
     backoff: float = 2.0,
 ) -> Generator[T]:
     """Breadth-first web crawler with automatic retry logic.

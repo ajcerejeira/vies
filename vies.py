@@ -4,6 +4,7 @@ import argparse
 import csv
 import io
 import json
+import logging
 import re
 import sys
 import time
@@ -15,6 +16,16 @@ from typing import Callable, Generator, Iterable, Iterator
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 from urllib.response import addinfourl as Response
+
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    handlers=[logging.StreamHandler(sys.stderr)],
+)
+
+logger = logging.getLogger(__name__)
 
 
 type JSON = None | bool | int | float | str | list[JSON] | dict[str, JSON]
@@ -309,15 +320,28 @@ def crawl[T](
         parse: ResponseParser[T],
         attempt: int = 0,
     ) -> ResponseParserResult[T]:
+        info = f"{request.get_method()} {request.get_full_url()} {request.data or ''}"
         try:
+            logger.debug("Processing request: %s", info)
             with urlopen(request, timeout=timeout) as response:
                 yield from parse(response)
-        except URLError:
+        except URLError as error:
             if attempt < retries:
+                logger.warning(
+                    "Request failed. Retrying (%d/%d): %s",
+                    attempt + 1,
+                    retries,
+                    info,
+                )
                 time.sleep(delay * (backoff**attempt))
                 yield from fetch(request, parse, attempt + 1)
             else:
-                raise
+                logger.error(
+                    "Request failed after %d retries: %s. %s",
+                    retries,
+                    info,
+                    getattr(error, "reason"),
+                )
 
     queue = deque(requests)
     while queue:
@@ -536,6 +560,11 @@ def main() -> None:
             for row in csv.DictReader(args.output)
         }
         args.output.seek(0, io.SEEK_END)
+        logger.info(
+            "Found %s already processed VAT numbers in %s",
+            len(processed_vat_numbers),
+            getattr(args.output, "name", "<output>"),
+        )
 
     # Extract all VAT numbers from the input file, ignoring invalid or processed ones
     vat_numbers = (
@@ -546,11 +575,16 @@ def main() -> None:
             and sanitized_vat_number not in processed_vat_numbers
         )
     )
+    logger.info(
+        "Reading VAT numbers from %s and filtering processed ones",
+        getattr(args.input, "name", "<stdin>"),
+    )
 
     # Scrape all the VAT numbers
+    logger.info("Starting VAT data scraping from VIES API (%s)", args.api)
     results = scrape(
         vat_numbers,
-        crawl=partial(crawl, retries=3, delay=30),
+        crawl=partial(crawl, retries=1, delay=30),
         factory=partial(
             request,
             base_url=args.api,
@@ -561,6 +595,7 @@ def main() -> None:
     )
 
     # Write the fetched results to the CSV file
+    logger.info("Writing results to %s", getattr(args.output, "name", "<stdout>"))
     serialize(args.output, results)
 
 

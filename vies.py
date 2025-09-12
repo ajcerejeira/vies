@@ -54,6 +54,7 @@ from typing import Literal, TextIO, TypedDict
 import httpx
 import openpyxl
 import zeep
+import zeep.exceptions
 
 
 class VIESResult(TypedDict):
@@ -125,23 +126,28 @@ def check(numbers: Iterable[str]) -> Generator[VIESResult]:
         numbers: Iterable of VAT numbers to validate (format: country code + number)
 
     Yields:
-        Validation results for each VAT number
+        Validation results for each VAT number.
+        Invalid VAT numbers or errors are skipped with logging.
 
     """
     wsdl = "https://ec.europa.eu/taxation_customs/vies/services/checkVatService.wsdl"
     with zeep.Client(wsdl=wsdl) as client:
         for number in numbers:
-            response = client.service.checkVat(
-                countryCode=number[:2],
-                vatNumber=number[2:],
-            )
-            yield VIESResult(
-                country_code=response.countryCode,
-                vat_number=response.vatNumber,
-                is_valid=response.valid,
-                name=response.name or "",
-                address=" ".join((response.address or "").splitlines()),
-            )
+            try:
+                logging.info("Fetching information for %s", number)
+                response = client.service.checkVat(
+                    countryCode=number[:2],
+                    vatNumber=number[2:],
+                )
+                yield VIESResult(
+                    country_code=response.countryCode,
+                    vat_number=response.vatNumber,
+                    is_valid=response.valid,
+                    name=response.name or "",
+                    address=" ".join((response.address or "").splitlines()),
+                )
+            except zeep.exceptions.Error as error:
+                logging.error("Error fetching information for %s: %s", number, error)
 
 
 def create_batch_job(client: httpx.Client, numbers: Iterable[str]) -> str:
@@ -220,22 +226,29 @@ def batch(
 
     Args:
         numbers: VAT numbers to validate
-        size: Number of VAT numbers per batch
+        size: Number of VAT numbers per batch (max 99 per VIES API limits)
         client: HTTP client for API requests
-        delay: Delay in seconds between API calls
+        delay: Delay in seconds between API calls and progress checks
 
     Yields:
-        Validation results for each VAT number
+        Validation results for each VAT number.
+        Failed batches are skipped with logging.
 
     """
-    for chunk in batched(numbers, size):
-        token = create_batch_job(client, chunk)
-        time.sleep(delay)
+    for index, chunk in enumerate(batched(numbers, size)):
+        try:
+            logging.info("Fetching information for chunk %d", index)
 
-        while get_batch_job_progress(client, token) < 100.00:
+            token = create_batch_job(client, chunk)
             time.sleep(delay)
 
-        yield from get_batch_job_result(client, token)
+            while get_batch_job_progress(client, token) < 100.00:
+                time.sleep(delay)
+
+            time.sleep(delay)
+            yield from get_batch_job_result(client, token)
+        except httpx.HTTPError as error:
+            logging.error("Error fetching information for chunk %d: %s", index, error)
 
 
 def main() -> None:
@@ -351,8 +364,8 @@ def main() -> None:
     # Parse the CLI arguments and configure logging
     args = parser.parse_args()
     logging.basicConfig(
-        level=logging.DEBUG if args.verbose else logging.WARNING,
-        format="[%(asctime)s] %(levelname)s %(name)s - %(message)s",
+        level=logging.DEBUG if args.verbose else logging.INFO,
+        format="[%(asctime)s] %(levelname)s %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
 

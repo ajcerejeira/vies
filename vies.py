@@ -100,7 +100,12 @@ def serialize(
                 output.write("\n")
 
 
-def client(*, timeout: float = 60.0, retries: int = 3) -> httpx.Client:
+def client(
+    *,
+    timeout: float = 60.0,
+    retries: int = 3,
+    proxy: str | None = None,
+) -> httpx.Client:
     """Create an HTTP client configured for the VIES REST API.
 
     Args:
@@ -116,6 +121,7 @@ def client(*, timeout: float = 60.0, retries: int = 3) -> httpx.Client:
         timeout=timeout,
         transport=httpx.HTTPTransport(retries=retries),
         limits=httpx.Limits(max_connections=5),
+        proxy=proxy,
     )
 
 
@@ -354,6 +360,13 @@ def main() -> None:
         help="delay in seconds between batch API calls (defaults to 5.0)",
     )
     batch_parser.add_argument(
+        "--proxy",
+        "-p",
+        metavar="URL",
+        default=None,
+        help="proxy server URL (e.g., http://proxy.example.com:8080)",
+    )
+    batch_parser.add_argument(
         "--verbose",
         "-v",
         action="store_true",
@@ -375,7 +388,7 @@ def main() -> None:
             results = check(args.numbers)
             serialize(args.format, results, args.output)
         case "batch":
-            with client(timeout=60.0, retries=args.retries) as vies:
+            with client(timeout=60.0, retries=args.retries, proxy=args.proxy) as vies:
                 numbers = (number.strip() for number in args.input)
                 results = batch(numbers, args.size, client=vies, delay=args.delay)
                 serialize(args.format, results, args.output)

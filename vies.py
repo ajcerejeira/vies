@@ -100,13 +100,14 @@ def serialize(
 
 def client(*, timeout: float = 60.0, retries: int = 3) -> httpx.Client:
     """Create an HTTP client configured for the VIES REST API.
-    
+
     Args:
         timeout: Request timeout in seconds
         retries: Number of retry attempts for failed requests
-        
+
     Returns:
         Configured HTTP client for VIES API calls
+
     """
     return httpx.Client(
         base_url="https://ec.europa.eu/taxation_customs/vies/rest-api/",
@@ -144,13 +145,14 @@ def check(numbers: Iterable[str]) -> Generator[VIESResult]:
 
 def create_batch_job(client: httpx.Client, numbers: Iterable[str]) -> str:
     """Create a batch validation job on the VIES service.
-    
+
     Args:
         client: HTTP client for API requests
         numbers: VAT numbers to validate in batch
-        
+
     Returns:
         Token identifying the created batch job
+
     """
     # Write the VAT numbers to a in-memory CSV file using VIES APi format
     buffer = StringIO()
@@ -167,13 +169,14 @@ def create_batch_job(client: httpx.Client, numbers: Iterable[str]) -> str:
 
 def get_batch_job_progress(client: httpx.Client, token: str) -> float:
     """Get the progress percentage of a batch validation job.
-    
+
     Args:
         client: HTTP client for API requests
         token: Batch job token
-        
+
     Returns:
         Progress percentage (0-100)
+
     """
     response = client.get(f"/vat-validation/{token}")
     return response.json()["percentage"]
@@ -181,13 +184,14 @@ def get_batch_job_progress(client: httpx.Client, token: str) -> float:
 
 def get_batch_job_result(client: httpx.Client, token: str) -> Generator[VIESResult]:
     """Retrieve and parse results from a completed batch validation job.
-    
+
     Args:
         client: HTTP client for API requests
         token: Batch job token
-        
+
     Yields:
         Validation results for each VAT number in the batch
+
     """
     response = client.get(f"/vat-validation-report/{token}")
 
@@ -212,25 +216,25 @@ def batch(
     delay: float,
 ) -> Generator[VIESResult]:
     """Process VAT numbers in batches using the VIES batch API.
-    
+
     Args:
         numbers: VAT numbers to validate
         size: Number of VAT numbers per batch
         client: HTTP client for API requests
         delay: Delay in seconds between API calls
-        
+
     Yields:
         Validation results for each VAT number
+
     """
     for chunk in batched(numbers, size):
         token = create_batch_job(client, chunk)
         time.sleep(delay)
 
-        while get_batch_job_progress(client, token) < 100:
+        while get_batch_job_progress(client, token) < 100.00:
             time.sleep(delay)
 
-        for result in get_batch_job_result(client, token):
-            yield result
+        yield from get_batch_job_result(client, token)
 
 
 def main() -> None:
@@ -279,7 +283,7 @@ def main() -> None:
     batch_parser = subparsers.add_parser(
         "batch",
         description="validate European VAT numbers in batches using the VIES service",
-        help="validate European VAT numbers in batches using the VIES service"
+        help="validate European VAT numbers in batches using the VIES service",
     )
     batch_parser.add_argument(
         "input",
@@ -329,7 +333,7 @@ def main() -> None:
         default=5.0,
         help="delay in seconds between batch API calls (defaults to 5.0)",
     )
-    
+
     batch_parser.set_defaults(command="batch")
 
     # Parse the CLI arguments and call the chosen command

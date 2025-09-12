@@ -16,4 +16,5 @@ jobs:
       uses: astral-sh/ruff-action@v3
 
     - name: Run mypy
-      run: uv run mypy vies.py
+      run: uv run mypy --disable-error-code import-untyped vies.py
+

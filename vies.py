@@ -28,12 +28,10 @@ Usage:
 """
 
 import argparse
-import asyncio
 import csv
 import json
-import os
 import sys
-from collections.abc import Iterable, Iterator
+from collections.abc import Generator, Iterable, Iterator
 from datetime import date
 from typing import Literal, TextIO, TypedDict
 
@@ -55,7 +53,11 @@ type SerializerFormat = Literal["csv", "json"]
 """Supported output formats for serializing validation results."""
 
 
-def serialize(fmt: SerializerFormat, items: Iterator[VIESResult], output: TextIO) -> None:
+def serialize(
+    fmt: SerializerFormat,
+    items: Iterator[VIESResult],
+    output: TextIO,
+) -> None:
     """Serialize a VIES validation result to the specified format.
 
     Args:
@@ -80,7 +82,7 @@ def serialize(fmt: SerializerFormat, items: Iterator[VIESResult], output: TextIO
                 output.write("\n")
 
 
-async def check(numbers: Iterable[str], fmt: SerializerFormat, output: TextIO) -> None:
+def check(numbers: Iterable[str]) -> Generator[VIESResult]:
     """Validate VAT numbers using the VIES service.
 
     Args:
@@ -90,14 +92,13 @@ async def check(numbers: Iterable[str], fmt: SerializerFormat, output: TextIO) -
 
     """
     wsdl = "https://ec.europa.eu/taxation_customs/vies/services/checkVatService.wsdl"
-    async with zeep.AsyncClient(wsdl=wsdl) as client:
-        results = []
+    with zeep.Client(wsdl=wsdl) as client:
         for number in numbers:
-            response = await client.service.checkVat(
+            response = client.service.checkVat(
                 countryCode=number[:2],
                 vatNumber=number[2:],
             )
-            result = VIESResult(
+            yield VIESResult(
                 country_code=response.countryCode,
                 vat_number=response.vatNumber,
                 request_date=response.requestDate,
@@ -105,16 +106,17 @@ async def check(numbers: Iterable[str], fmt: SerializerFormat, output: TextIO) -
                 name=response.name or "",
                 address=" ".join((response.address or "").splitlines()),
             )
-            results.append(result)
-        serialize(fmt, iter(results), output)
 
 
-async def main() -> None:
+def main() -> None:
     """Run the VIES CLI tool."""
     parser = argparse.ArgumentParser(
         prog="vies",
         description="Validate European VAT numbers using the VIES service",
-        epilog="For more information about VIES, visit: https://ec.europa.eu/taxation_customs/vies/",
+        epilog=(
+            "For more information about VIES, visit:"
+            "https://ec.europa.eu/taxation_customs/vies/"
+        ),
     )
     subparsers = parser.add_subparsers(title="commands", required=True)
 
@@ -151,8 +153,9 @@ async def main() -> None:
     # Parse the CLI arguments and call the chosen command
     match (args := parser.parse_args()).command:
         case "check":
-            await check(args.numbers, args.format, args.output)
+            results = check(args.numbers)
+            serialize(args.format, results, args.output)
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()

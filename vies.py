@@ -279,9 +279,10 @@ def main() -> None:
         help="output file for results (default: <stdout>)",
     )
     check_parser.add_argument(
-        "--debug",
+        "--verbose",
+        "-v",
         action="store_true",
-        help="enable debug logging",
+        help="enable verbose logging",
     )
     check_parser.set_defaults(command="check")
 
@@ -340,16 +341,17 @@ def main() -> None:
         help="delay in seconds between batch API calls (defaults to 5.0)",
     )
     batch_parser.add_argument(
-        "--debug",
+        "--verbose",
+        "-v",
         action="store_true",
-        help="enable debug logging",
+        help="enable verbose logging",
     )
     batch_parser.set_defaults(command="batch")
 
     # Parse the CLI arguments and configure logging
     args = parser.parse_args()
     logging.basicConfig(
-        level=logging.DEBUG if args.debug else logging.WARNING,
+        level=logging.DEBUG if args.verbose else logging.WARNING,
         format="[%(asctime)s] %(levelname)s %(name)s - %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )

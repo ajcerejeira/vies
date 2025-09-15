@@ -1,9 +1,10 @@
 # vies-scraper
 
-Validate European VAT numbers using the official European Commission's 
+Validate European VAT numbers using the official European Commission's
 [VIES (VAT Information Exchange System) service](https://ec.europa.eu/taxation_customs/vies/).
 
-Supports both individual validation via SOAP API and batch validation via REST API.
+This tool performs batch validation of VAT numbers using the VIES REST API with 
+crapy for concurrent processing.
 
 [![GitHub License](https://img.shields.io/github/license/ajcerejeira/vies-scraper)](LICENSE)
 [![CI](https://github.com/ajcerejeira/vies-scraper/actions/workflows/ci.yml/badge.svg)](https://github.com/ajcerejeira/vies-scraper/actions/workflows/ci.yml)
@@ -23,88 +24,57 @@ chmod +x vies.py
 
 ## Usage
 
-### Individual validation
-
 ```bash
-./vies.py check VAT_NUMBER [VAT_NUMBER ...] [options]
+./vies.py [FILE] [options]
+
+Arguments:
+  FILE                  input file that contains line delimited VAT numbers (defaults to STDIN)
 
 Options:
-  -f, --format FORMAT   output format for validation results (default: json)
-  -o, --output FILE     output file for results (default: <stdout>)
-  -h, --help            show this help message and exit
-```
-
-### Batch validation
-
-```bash
-./vies.py batch [FILE] [options]
-
-Options:
-  -f, --format FORMAT   output format for validation results (default: json)
-  -o, --output FILE     output file to write the results to (default: <stdout>)
-  -s, --size SIZE       batch size for processing multiple VAT numbers (default: 99)
-  -r, --retries NUMBER  number of retry attempts for failed requests (default: 3)
-  -d, --delay SECONDS   delay in seconds between batch API calls (default: 5.0)
+  -o, --output FILE     output CSV file to write the results to (default: 'vat-numbers.csv')
   -h, --help            show this help message and exit
 ```
 
 ## Examples
 
-### Individual validation
+### Validate from file
 
-#### Validate single VAT number (JSON output to stdout)
-
-```bash
-$ ./vies.py check DE123456789 | jq
-{
-  "country_code": "DE",
-  "vat_number": "123456789",
-  "is_valid": true,
-  "name": "EXAMPLE COMPANY GMBH",
-  "address": "EXAMPLE ADDRESS, 12345 BERLIN"
-}
-```
-
-#### Validate multiple VAT numbers
+Create a file with VAT numbers (one per line):
 
 ```bash
-$ ./vies.py check DE123456789 FR12345678901 ES12345678Z
+$ cat > vat_numbers.txt << EOF
+DE123456789
+FR12345678901
+ES12345678Z
+EOF
+
+$ ./vies.py vat_numbers.txt
 ```
 
-#### Output as CSV
+This will create a CSV file `vat-numbers.csv` with the validation results.
+
+### Validate from stdin
 
 ```bash
-$ ./vies.py check --format csv DE123456789
-country_code,vat_number,is_valid,name,address
-DE,123456789,True,EXAMPLE COMPANY GMBH,"EXAMPLE ADDRESS, 12345 BERLIN"
+$ echo -e "DE123456789\nFR12345678901" | ./vies.py
 ```
 
-#### Save to file
+### Custom output file
 
 ```bash
-$ ./vies.py check --format json --output results.json DE123456789
-$ ./vies.py check --format csv --output results.csv DE123456789
+$ ./vies.py --output results.csv vat_numbers.txt
 ```
 
-### Batch validation
+### Expected CSV output format
 
-#### Batch validate from file (line-delimited VAT numbers)
+The output CSV file contains the following columns:
 
-```bash
-$ ./vies.py batch input.txt
-```
-
-#### Batch validate with custom settings
-
-```bash
-$ ./vies.py batch --size 50 --delay 2.0 --format csv --output results.csv input.txt
-```
-
-#### Batch validate from stdin
-
-```bash
-$ echo -e "DE123456789\nFR12345678901" | ./vies.py batch
-```
+- `countryCode`: The 2-letter country code (e.g., "DE", "FR")
+- `vatNumber`: The VAT number without country code
+- `valid`: Boolean indicating if the VAT number is valid
+- `name`: Company name (if valid and available)
+- `address`: Company address (if valid and available)
+- `errors`: Any error messages from the validation process
 
 ## License
 
